@@ -1,0 +1,9 @@
+# Rust (server/)
+target/
+
+# Node (webui/)
+node_modules/
+dist/
+
+# WebUI build output consumed by the server in dev_mode
+.ignore/

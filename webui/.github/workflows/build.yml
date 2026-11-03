@@ -1,0 +1,135 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      major: ${{ steps.version.outputs.major }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Read package version
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major=${version%%.*}" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Check tag matches package version
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npx eslint src/
+
+      - run: npm run build
+
+      - name: Create webui.zip
+        working-directory: dist
+        run: zip -r ../webui.zip .
+
+      - name: Build release body
+        run: |
+          awk '/^## \[/{c++} c==1' CHANGELOG.md > release_body.md
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: webui.zip
+          body_path: release_body.md
+          # Tag-push releases are created as drafts; the `publish` job un-drafts
+          # them only after the build succeeds, so watcher notifications don't
+          # fire on broken builds.
+          draft: true
+
+  publish:
+    name: Publish release
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Un-draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
+
+  rolling:
+    name: Update rolling major release
+    needs: [build, publish]
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: rolling-v${{ needs.build.outputs.major }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      ROLLING_TAG: v${{ needs.build.outputs.major }}
+      ASSET: webui.zip
+    steps:
+      - name: Download versioned asset
+        run: gh release download "$TAG" --pattern "$ASSET"
+
+      - name: Move rolling tag
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/$ROLLING_TAG" --silent 2>/dev/null; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$ROLLING_TAG" -f sha="$GITHUB_SHA" -F force=true --silent
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$ROLLING_TAG" -f sha="$GITHUB_SHA" --silent
+          fi
+
+      - name: Publish rolling release
+        run: |
+          title="Stalwart WebUI ${ROLLING_TAG#v}.x"
+          notes="Tracks the latest ${ROLLING_TAG#v}.x release."
+          if gh release view "$ROLLING_TAG" >/dev/null 2>&1; then
+            gh release edit "$ROLLING_TAG" --title "$title" --notes "$notes" --draft=false --prerelease=false --latest=false
+            gh release upload "$ROLLING_TAG" "$ASSET" --clobber
+          else
+            gh release create "$ROLLING_TAG" "$ASSET" --verify-tag --title "$title" --notes "$notes" --latest=false
+          fi
+
+  cleanup:
+    name: Cleanup failed release
+    needs: [build]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete draft release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "${{ github.ref_name }}" --yes --cleanup-tag --repo "${{ github.repository }}" || true

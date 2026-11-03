@@ -1,0 +1,58 @@
+# Stalwart monorepo — Coolify deployment (Docker Compose resource)
+#
+# In Coolify: New Resource -> Docker Compose -> pick this repo/branch,
+# compose file: ./docker-compose.yml
+#
+# After deploy, assign the domain to the "stalwart" service using the
+# container's HTTP port, e.g.:  https://mail.example.com:8080
+# (the trailing :8080 tells Coolify which container port to proxy).
+
+services:
+  stalwart:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # On a VPS with < 4GB RAM, uncomment to make the Rust build fit:
+      # args:
+      #   BUILD_LTO: "false"
+      #   BUILD_CODEGEN_UNITS: "16"
+
+    # HTTP listener (admin UI / JMAP / DAV / setup wizard).
+    # NOT published on the host — Coolify's proxy reaches it over the
+    # internal network once you assign a domain to this service.
+    expose:
+      - "8080"
+
+    # Mail protocols, published directly on the host (TLS is handled by
+    # Stalwart itself, not by Coolify's proxy).
+    ports:
+      - "25:25"        # SMTP (inbound mail from other servers)
+      - "465:465"      # SMTP submissions (implicit TLS)
+      - "993:993"      # IMAPS
+      - "995:995"      # POP3S
+      - "4190:4190"    # ManageSieve
+      # Optional — create these listeners in the admin UI first, then publish:
+      # - "587:587"    # SMTP submission (STARTTLS)
+      # - "143:143"    # IMAP (STARTTLS)
+      # - "110:110"    # POP3 (STARTTLS)
+      # - "443:443"    # direct HTTPS/JMAP — usually proxied by Coolify instead
+
+    volumes:
+      - stalwart-config:/etc/stalwart   # bootstrap config.json + local settings
+      - stalwart-data:/var/lib/stalwart # data store, blobs, message index
+
+    # Optional env vars (or set them in Coolify's Environment Variables UI):
+    # STALWART_HOSTNAME: mail.example.com
+    # STALWART_PUBLIC_URL: https://mail.example.com
+
+    restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  stalwart-config:
+  stalwart-data:

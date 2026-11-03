@@ -1,0 +1,20 @@
+# Monorepo build context — whitelist only what the image build needs.
+*
+
+# Server (Rust workspace)
+!server/crates
+!server/resources
+!server/.cargo
+!server/Cargo.toml
+!server/Cargo.lock
+
+# WebUI (Vite app)
+!webui/src
+!webui/public
+!webui/index.html
+!webui/package.json
+!webui/package-lock.json
+!webui/vite.config.ts
+!webui/tsconfig.json
+!webui/tsconfig.app.json
+!webui/tsconfig.node.json
