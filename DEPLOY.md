@@ -1,60 +1,83 @@
 # Deploying to a VPS with Coolify
 
-This repo deploys as **one Docker image** that contains everything:
+The workflow is: **GitHub Actions builds the image, Coolify pulls it.** Every push
+to `main` triggers `.github/workflows/docker-image.yml`, which builds a single
+multi-arch image (amd64 + arm64) containing:
 
-- the **Stalwart server**, compiled from `server/` (cargo-chef multi-stage build, same recipe as upstream),
-- the **WebUI**, built from `webui/` inside the image and **bundled into it** at `/opt/stalwart/webui.zip`.
+- the **Stalwart server**, compiled from `server/` (cargo-chef build, upstream's recipe),
+- the **WebUI**, built from `webui/` and **bundled into the image** at `/opt/stalwart/webui.zip`.
 
 The server's default UI URL is pinned to the bundled zip (the builder stage rewrites
 the upstream GitHub download URL to `file:///opt/stalwart/webui.zip`), so the admin
-panel and account portal are always **your local build** — the container never
-downloads anything from GitHub at runtime. Every image build picks up whatever is
-in `webui/` at that moment; redeploying ships UI updates automatically.
+panel and portal are always **your local build** — nothing is downloaded from GitHub
+at runtime, and redeploying ships your latest UI changes automatically.
+
+This split exists because compiling Stalwart on a small VPS takes 1–2+ hours and
+lots of RAM; GitHub's runners do it for free in ~30–60 min, so the VPS only ever
+pulls a ready-made image (~1 min deploys).
 
 ## Files
 
 | File | Purpose |
 |---|---|
+| `.github/workflows/docker-image.yml` | CI: builds + pushes the image to GHCR on every push to `main` |
 | `Dockerfile` | Builds server + WebUI into one image |
-| `docker-compose.yml` | Coolify "Docker Compose" resource definition |
+| `docker-compose.yml` | Coolify resource — pulls `ghcr.io/gitikram/stalwart:main` |
 | `.dockerignore` | Keeps the build context to what's needed |
 
 ## Prerequisites
 
-1. **Push this repo to a git remote** (GitHub/GitLab — Coolify clones from it).
-2. **VPS sizing**: the Rust release build wants memory. ≥ 4 GB RAM recommended.
-   On a 2 GB VPS, uncomment in `docker-compose.yml`:
-   ```yaml
-   args:
-     BUILD_LTO: "false"
-     BUILD_CODEGEN_UNITS: "16"
-   ```
+1. This repo on GitHub (`gitikram/stalwart`) — CI runs automatically on push.
+2. **VPS sizing**: running Stalwart is light (~0.5–1 GB RAM + mail storage). Any
+   1–2 GB VPS works when using the CI image. (Only *building* on the VPS needs
+   4 GB+ — see the alternative below.)
 3. **DNS (before deploy)**: an `A` (and/or `AAAA`) record for your mail hostname,
    e.g. `mail.example.com → VPS IP`. Mail-specific records (MX, SPF, DKIM, DMARC)
    are covered in *Mail setup* below.
-4. **Firewall**: allow inbound 25, 465, 993, 995, 4190 (and 80/443 which Coolify's
-   proxy already manages). Outbound **port 25 must not be blocked** — many providers
+4. **Firewall**: allow inbound 25, 465, 993, 995, 4190 (80/443 are managed by
+   Coolify's proxy). Outbound **port 25 must not be blocked** — many providers
    (Hetzner, DigitalOcean, Oracle…) block it by default; request the block removed
    or your mail can't be delivered.
+5. **GHCR package visibility (one-time)**: the first CI run creates the package
+   **private**. Either make it public — GitHub repo → Packages → `stalwart` →
+   *Package settings* → *Change visibility* → Public (source is AGPL anyway) —
+   or keep it private and add a read-credentials registry entry in Coolify
+   (Server → Registries, PAT with `read:packages`).
 
 ## Deploy steps
 
-1. Coolify dashboard → your project → **New Resource → Docker Compose**.
-2. Select the repo + branch. Compose file: `./docker-compose.yml`.
-3. Assign a **domain** to the `stalwart` service, pointing at the container's HTTP
-   port: `https://mail.example.com:8080` (the trailing `:8080` = container port;
-   Coolify's proxy terminates HTTPS in front of it).
-4. Optionally add environment variables on the service:
+1. Wait for the CI run to finish: GitHub repo → **Actions** → "Build Docker image"
+   green, and the image exists at `ghcr.io/gitikram/stalwart:main`.
+2. Make the GHCR package public (or set up registry credentials, see Prerequisites).
+3. Coolify dashboard → your project → **New Resource → Docker Compose**.
+4. Select the repo + branch. Compose file: `./docker-compose.yml`.
+5. Assign a **domain** to the `stalwart` service: `https://mail.example.com:8080`
+   (the trailing `:8080` = *container* port; Coolify's proxy terminates HTTPS on
+   443 in front of it — no conflict with Coolify itself, which uses 8000/6001 and
+   proxy ports 80/443, none of which we publish).
+6. Optionally add environment variables on the service:
    - `STALWART_HOSTNAME=mail.example.com`
    - `STALWART_PUBLIC_URL=https://mail.example.com`
-5. **Deploy.** First build compiles the whole Rust workspace — expect **20–45 min**;
-   later builds are incremental (cargo-chef caches dependencies per Dockerfile layer).
-6. Open your domain → Stalwart runs its **first-boot setup wizard** (bootstrap mode,
-   port 8080). Create the admin account; keep the default local data store
+7. **Deploy** — it just pulls the image and starts (~1–2 min).
+8. Open your domain → Stalwart runs its **first-boot setup wizard** (bootstrap
+   mode, port 8080). Create the admin account; keep the default local data store
    (SQLite/RocksDB paths inside the `/var/lib/stalwart` volume) for a single node.
 
 > The healthcheck allows a long start period (300 s) so the container isn't marked
 > unhealthy while it waits for you to finish the wizard.
+
+## Alternative: build on the VPS (not recommended)
+
+If you ever want the VPS to build instead of pulling:
+
+1. In `docker-compose.yml` comment the `image:` line and uncomment the `build:` block.
+2. Raise Coolify's deployment timeout: Server → Settings → **Advanced → Builds**
+   (set e.g. 7200 s) — the default 3600 s *will* kill the first build.
+3. On a VPS with < 4 GB RAM also uncomment `BUILD_LTO: "false"` and
+   `BUILD_CODEGEN_UNITS: "16"`, and add swap, or the build will thrash/OOM.
+
+Expect 1–2+ hours for the first build and long rebuilds afterwards — the CI route
+exists precisely to avoid this.
 
 ## Mail setup (after the wizard)
 
@@ -76,7 +99,9 @@ in `webui/` at that moment; redeploying ships UI updates automatically.
 
 ## Operations
 
-- **Updates**: `git push` → Coolify **Redeploy**. Server and WebUI rebuild from source.
+- **Updates**: `git push` → CI builds a new image → Coolify **Redeploy** (pulls
+  `main` tag). Server and WebUI rebuild from source. To fully automate, enable
+  webhooks for the resource in Coolify so pushes trigger redeploy.
 - **Backups** (Coolify → service → Backups): schedule backups of the named volumes
   `stalwart-data` (all mail + registry) and `stalwart-config` (bootstrap config).
 - **Logs**: Coolify log viewer, or `docker logs` — the healthcheck endpoints are
@@ -86,9 +111,8 @@ in `webui/` at that moment; redeploying ships UI updates automatically.
 
 ## Troubleshooting
 
-- **Build dies / OOM on the VPS** → use the `BUILD_LTO=false` / `BUILD_CODEGEN_UNITS=16`
-  args, or build the image on a bigger machine (or CI) and point the compose file at
-  the pushed image instead of `build:`.
+- **"Image not found" / pull error on deploy** → the GHCR package is still private
+  (make it public, see Prerequisites) or the CI run hasn't finished yet.
 - **UI shows a setup wizard after you already configured** → the config volume
   (`stalwart-config`) was lost; check both volumes are attached.
 - **Can receive but not send mail** → outbound port 25 blocked by the provider (see

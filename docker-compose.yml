@@ -9,13 +9,22 @@
 
 services:
   stalwart:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      # On a VPS with < 4GB RAM, uncomment to make the Rust build fit:
-      # args:
-      #   BUILD_LTO: "false"
-      #   BUILD_CODEGEN_UNITS: "16"
+    # Default: pull the image built by GitHub Actions (CI) and pushed to GHCR.
+    # Deploys take ~1 minute (pull only). The image is multi-arch
+    # (amd64 + arm64), so it runs on any VPS.
+    image: ghcr.io/gitikram/stalwart:main
+
+    # Alternative: build directly on the server instead of pulling.
+    # WARNING: the Rust build needs 4GB+ RAM and 1-2+ hours on small VPSes,
+    # and Coolify kills deployments after its timeout (Server -> Settings ->
+    # Advanced -> Builds). Prefer the CI image unless the VPS is beefy.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   # On a VPS with < 4GB RAM, uncomment to make the Rust build fit:
+    #   # args:
+    #   #   BUILD_LTO: "false"
+    #   #   BUILD_CODEGEN_UNITS: "16"
 
     # HTTP listener (admin UI / JMAP / DAV / setup wizard).
     # NOT published on the host — Coolify's proxy reaches it over the
