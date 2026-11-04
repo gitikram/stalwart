@@ -52,11 +52,9 @@ services:
 
     # REQUIRED for first-boot login behind the Coolify proxy — the server
     # derives its public domain from these (CIMD sameDomain check, OIDC URLs).
-    # Replace example.com with your real domain, or set these in the Coolify
-    # UI (Environment Variables) which takes precedence:
     environment:
-      STALWART_HOSTNAME: mail.example.com
-      STALWART_PUBLIC_URL: https://mail.example.com
+      STALWART_HOSTNAME: mail.webvoss.com
+      STALWART_PUBLIC_URL: https://mail.webvoss.com
 
     restart: unless-stopped
 
