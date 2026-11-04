@@ -271,8 +271,22 @@ impl FormData {
 }
 
 pub fn request_origin<'x>(req: &'x HttpRequest, session: &HttpSessionData) -> RequestOrigin<'x> {
+    // MONOREPO PATCH: behind a TLS-terminating reverse proxy (Coolify/Traefik)
+    // the container only sees plain HTTP, so session.is_tls is always false
+    // while browsers reach the server over https. Without this, OAuth origins
+    // are built with the wrong scheme: the first-party client check rejects
+    // the WebUI (tls mismatch) and the served client metadata document advertises
+    // http:// urls that can never match the browser's https:// client id.
+    // The container port is not exposed externally, so the header can only
+    // originate from the proxy.
+    let is_tls = req
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(',').next().unwrap_or(value).trim().eq_ignore_ascii_case("https"))
+        .unwrap_or(session.is_tls);
     RequestOrigin {
-        is_tls: session.is_tls,
+        is_tls,
         authority: req
             .headers()
             .get(HOST)
