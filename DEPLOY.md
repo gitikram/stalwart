@@ -56,7 +56,9 @@ image (~1 min deploys).
    (the trailing `:8080` = *container* port; Coolify's proxy terminates HTTPS on
    443 in front of it — no conflict with Coolify itself, which uses 8000/6001 and
    proxy ports 80/443, none of which we publish).
-6. Optionally add environment variables on the service:
+6. **Required environment variables** on the service (without these, first-boot
+   login fails with "Client metadata document domain is not allowed" because the
+   server can't tell which domain it serves):
    - `STALWART_HOSTNAME=mail.example.com`
    - `STALWART_PUBLIC_URL=https://mail.example.com`
 7. **Deploy** — it just pulls the image and starts (~1–2 min).

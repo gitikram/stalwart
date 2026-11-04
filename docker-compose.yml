@@ -50,9 +50,13 @@ services:
       - stalwart-config:/etc/stalwart   # bootstrap config.json + local settings
       - stalwart-data:/var/lib/stalwart # data store, blobs, message index
 
-    # Optional env vars (or set them in Coolify's Environment Variables UI):
-    # STALWART_HOSTNAME: mail.example.com
-    # STALWART_PUBLIC_URL: https://mail.example.com
+    # REQUIRED for first-boot login behind the Coolify proxy — the server
+    # derives its public domain from these (CIMD sameDomain check, OIDC URLs).
+    # Replace example.com with your real domain, or set these in the Coolify
+    # UI (Environment Variables) which takes precedence:
+    environment:
+      STALWART_HOSTNAME: mail.example.com
+      STALWART_PUBLIC_URL: https://mail.example.com
 
     restart: unless-stopped
 
