@@ -13,8 +13,9 @@ panel and portal are always **your local build** — nothing is downloaded from 
 at runtime, and redeploying ships your latest UI changes automatically.
 
 This split exists because compiling Stalwart on a small VPS takes 1–2+ hours and
-lots of RAM; GitHub's runners do it for free in ~30–60 min, so the VPS only ever
-pulls a ready-made image (~1 min deploys).
+lots of RAM; GitHub's runners do it for free — natively on both x86 and ARM
+machines in parallel (no emulation) — so the VPS only ever pulls a ready-made
+image (~1 min deploys).
 
 ## Files
 
