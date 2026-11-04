@@ -52757,7 +52757,13 @@ impl Default for OidcProvider {
             encryption_key: Default::default(),
             signature_algorithm: JwtSignatureAlgorithm::Hs256,
             signature_key: Default::default(),
-            client_metadata_documents: OAuthClientMetadataPolicy::Disabled,
+            // MONOREPO PATCH (upstream bug in 1.0.2): discovery always advertises
+            // client_id_metadata_document_supported=true, but this default is
+            // Disabled, so the WebUI's own-origin client id is rejected with
+            // "Client metadata documents are disabled" during first-boot login.
+            // `sameDomain` accepts only documents published on this server's own
+            // registrable domain (i.e. the WebUI itself). See DEPLOY.md.
+            client_metadata_documents: OAuthClientMetadataPolicy::SameDomain,
         }
     }
 }
