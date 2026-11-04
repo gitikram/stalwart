@@ -483,7 +483,14 @@ impl Http {
         let server_name = "127.0.0.1";
 
         Http {
-            url_https: if !bp.registry.is_recovery_mode() {
+            // MONOREPO PATCH (upstream bug in 1.0.2): bootstrap mode sets
+            // env_recovery_mode=true (see RegistryStore::init), so upstream's
+            // `!is_recovery_mode()` check lumps bootstrap with recovery and
+            // leaves url_https empty. The empty URL makes registrable_domain
+            // None, which makes the OAuth CIMD sameDomain policy always fail
+            // ("Client metadata document domain is not allowed") and blocks
+            // first-boot login. Bootstrap is not recovery: read the public URL.
+            url_https: if !bp.registry.is_recovery_mode() || bp.registry.is_bootstrap_mode() {
                 if let Some(url) = bp.registry.public_url() {
                     url.to_string()
                 } else {
